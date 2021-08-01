@@ -1,4 +1,5 @@
-class DoorPiCard extends HTMLElement {
+class DoorDroidCard extends HTMLElement {
+
     constructor() {
         super();
         this.attachShadow({ mode: 'open' });
@@ -11,7 +12,7 @@ class DoorPiCard extends HTMLElement {
         } else if(this.cameraEntityHasNewAccessToken(hass)) {
             this.updateCameraView(hass);
         }
-        this.initDoorbellRinging(hass)
+//        this.initDoorbellRinging(hass)
     }
 
     setConfig(config) {
@@ -27,7 +28,6 @@ class DoorPiCard extends HTMLElement {
             if(!config.sip_settings.sip_password) throw new Error('You need to define the SIP password');
         }
         this.config = config;
-
         const root = this.shadowRoot;
         if (root.lastChild) root.removeChild(root.lastChild);
 
@@ -39,20 +39,15 @@ class DoorPiCard extends HTMLElement {
             ha-card {
                 /* sample css */
             }
-            .buttons {
+            .button {
                 overflow: auto;
                 padding: 16px;
                 text-align: right;
-            } 
-            .ring-buttons {
-                float: left;
-                background: var(--paper-dialog-background-color, var(--primary-background-color));
-                color: var(--paper-dialog-color, var(--primary-text-color));
             }
-            #cameraview img{
-                object-fit: cover;
-                height: 400px;
-            }
+//            #cameraview img{
+//                object-fit: cover;
+//                height: 400px;
+//           }
             mwc-button {
                 margin-right: 16px;
             }
@@ -62,19 +57,13 @@ class DoorPiCard extends HTMLElement {
             <p style="padding: 16px">Initializing SIP connection and webcam view</p>
             <audio id='audio-player'></audio>
         </div>
-        <div class='buttons'>
-            <div class="ring-buttons">
-                <mwc-button dense id='bell-everywhere'><ha-icon class="mdc-button__icon" icon="mdi:bell-ring-outline"></ha-icon></mwc-button>
-                <mwc-button dense id='bell-firstfloor'><ha-icon class="mdc-button__icon" icon="mdi:bell-outline"></ha-icon></mwc-button>
-                <mwc-button dense id='bell-off'><ha-icon class="mdc-button__icon" icon="mdi:bell-off-outline"></ha-icon></mwc-button>
-            </div>
-            <mwc-button raised id='btn-open-door'>` + 'Open Door' + `</mwc-button>
-            <mwc-button style='display:none' raised id='btn-accept-call'>` + 'Accept' + `</mwc-button>
-            <mwc-button style='display:none' raised id='btn-reject-call'>` + 'Reject' + `</mwc-button>
-            <mwc-button style='display:none' raised id='btn-end-call'>` + 'End' + `</mwc-button>
+        <div class='button'>
+            <mwc-button raised id='btn-open-door'>` + 'Ouvrir le portail' + `</mwc-button>
+            <mwc-button style='display:none' raised id='btn-accept-call'>` + 'Accepter appel' + `</mwc-button>
+            <mwc-button style='display:none' raised id='btn-reject-call'>` + 'Rejeter appel' + `</mwc-button>
+            <mwc-button style='display:none' raised id='btn-end-call'>` + 'Terminer appel' + `</mwc-button>
         </div>
         `;
-        card.header = ''
         card.appendChild(content);
         card.appendChild(style);
         root.appendChild(card);
@@ -83,7 +72,7 @@ class DoorPiCard extends HTMLElement {
     // The height of your card. Home Assistant uses this to automatically
     // distribute all cards over the available columns.
     getCardSize() {
-        return 3;
+        return 1;
     }
 
     notYetInitialized() {
@@ -100,19 +89,21 @@ class DoorPiCard extends HTMLElement {
             password : this.config.sip_settings.sip_password
         };
         this.sipPhone = new JsSIP.UA(configuration);
-        this.sipPhone.start()
-
+        this.sipPhone.start();
+        let droidCard = this;
+        let openDoorBtn = droidCard.getElementById('btn-open-door');
+        openDoorBtn.addEventListener('click', function(opendoor) {
+            hass.callService('input_boolean', 'turn_on', { entity_id: 'input_boolean.open_portail' });
+        });
 
         let callOptions = { mediaConstraints: { audio: true, video: false } };// only audio calls
 
         this.sipPhone.on("registered", () => console.log('SIPPhone registered with SIP Server'));
 
-        let droidCard = this;
         this.sipPhone.on("newRTCSession", function(data){
-            let session = data.session; 
-
-            
+            let session = data.session;
             if (session.direction === "incoming") {
+                hass.callService('input_boolean', 'turn_on', { entity_id: 'input_boolean.gds_ringing' });
                 let acceptCallBtn = droidCard.getElementById('btn-accept-call');
                 let rejectCallBtn = droidCard.getElementById('btn-reject-call');
                 let endCallBtn = droidCard.getElementById('btn-end-call');
@@ -122,7 +113,6 @@ class DoorPiCard extends HTMLElement {
                     acceptCallBtn.style.display = 'none';
                     rejectCallBtn.style.display = 'none';
                     endCallBtn.style.display = 'inline-flex';
-
                 });
                 session.on("confirmed", () => console.log('call confirmed'));
                 session.on("ended", () => {console.log('call ended'); droidCard.cleanup(hass)});
@@ -138,10 +128,19 @@ class DoorPiCard extends HTMLElement {
                         remoteAudio.play();
                     })
                 });
-                
-                acceptCallBtn.addEventListener('click', () => session.answer(callOptions));
-                rejectCallBtn.addEventListener('click', () => session.terminate());
+                acceptCallBtn.addEventListener('click', () => {
+                    session.answer(callOptions);
+                    hass.callService('input_boolean', 'turn_off', { entity_id: 'input_boolean.gds_ringing' });
+                });
                 endCallBtn.addEventListener('click', () => session.terminate());
+                rejectCallBtn.addEventListener('click', () => {
+                      hass.callService('input_boolean', 'turn_off', { entity_id: 'input_boolean.gds_ringing' });
+                      session.answer(callOptions);
+                      setTimeout(() => {
+                        session.terminate();
+                      }, 1000);
+                });
+
                 acceptCallBtn.style.display = 'inline-flex';
                 rejectCallBtn.style.display = 'inline-flex';
             }
@@ -179,23 +178,6 @@ class DoorPiCard extends HTMLElement {
         const new_access_token = hass.states[this.config.camera_entity].attributes['access_token'];
 
         return old_access_token !== new_access_token;
-    }
-
-    initDoorbellRinging(hass) {
-        this.setupBellRingingButton(hass, 'everywhere', 'firstfloor');
-        this.setupBellRingingButton(hass, 'firstfloor', 'off');
-        this.setupBellRingingButton(hass, 'off', 'everywhere');
-    }
-
-    setupBellRingingButton(hass, where, next) {
-        let btn = this.shadowRoot.querySelector(`#bell-${where}`);
-
-        if(hass.states['input_select.doorbell'].state == `ring-${where}`) {
-            btn.style.display = 'inline-flex'; 
-        } else {
-            btn.style.display = 'none';
-        }
-        btn.addEventListener('click', () => hass.callService('input_select', 'select_option', { entity_id: 'input_select.doorbell', option: `ring-${next}`}));
     }
 
     isDoorPiNotShown() {
@@ -239,13 +221,12 @@ class DoorPiCard extends HTMLElement {
         clonedEndCallBtn.style.display = 'none';
         endCallBtn.parentNode.replaceChild(clonedEndCallBtn, endCallBtn);
 
-        hass.callService('input_boolean', 'turn_off', { entity_id: 'input_boolean.doorbell' })
     }
-    
+
 
     getElementById(id) {
         return this.shadowRoot.querySelector(`#${id}`);
     }
 }
 
-customElements.define('doorpi-card', DoorPiCard);
+customElements.define('doordroid-card', DoorDroidCard);
